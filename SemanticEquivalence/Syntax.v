@@ -37,14 +37,14 @@ Inductive com : Type :=
   | CReturn: com.
 
 Record proc: Type := {
-  name: func_id;
-  body: com;
-  args: list var_id;
+  name_proc: func_id;
+  body_proc: com;
+  params_proc: list var_id;
 }.
 
 Record program: Type := {
   global_vars: list var_id;
-  procs: list proc;
+  procs: func_id -> option proc;
   entry: func_id;
 }.
 

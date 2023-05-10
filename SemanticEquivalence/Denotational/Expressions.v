@@ -1,3 +1,4 @@
+From Coq Require Import List.
 Require Import SetsClass.SetsClass.
 
 Require Import SemanticEquivalence.Syntax.
@@ -8,6 +9,7 @@ Local Open Scope Z.
 Local Open Scope sets.
 
 Module DntSem_WhileDCF_Expr.
+Import SetsNotation.
 Import Representation DntSem Lang_WhileDCF.
 Import EDenote.
 
@@ -284,6 +286,26 @@ with eval_l (e: expr): EDenote :=
       eval_r e1
   | _ =>
       {| nrm := ∅; err := Sets.full; |}
+  end.
+
+Fixpoint eval_expr_list_nrm (e : list expr) (st : state) (res : list word) : Prop :=
+  match e with
+  | nil => res = nil
+  | e0 :: e1 =>
+    match res with
+    | nil => False
+    | res0 :: res1 =>
+      (eval_r e0).(nrm) st res0 /\
+      eval_expr_list_nrm e1 st res1
+    end
+  end.
+
+Fixpoint eval_expr_list_err (e : list expr) (st : state) : Prop :=
+  match e with
+  | nil => False
+  | e0 :: e1 =>
+    (eval_r e0).(err) st \/
+    eval_expr_list_err e1 st
   end.
 
 End DntSem_WhileDCF_Expr.
