@@ -299,24 +299,6 @@ Definition for_sem
     inf := D.(inf) ∪ (D.(nrm) ∘ Sets.general_union (ForSem.is_inf D0 D1 D2));
   |}.
 
-Definition set_addr
-             (x: var_id)
-             (l1 l2: word):
-  state -> state -> Prop :=
-  fun s1 s2 => s1.(var) x = l1 /\ s2.(var) x = l2.
-
-Definition alloc_mem (l: word) (v : val):
-  state -> state -> Prop :=
-  fun s1 s2 =>
-    (s1.(mem) l = Memp /\ s2.(mem) l = Mstore v) /\
-    (forall l', l <> l' -> s1.(mem) l' = s2.(mem) l').
-
-Definition dealloc_mem (l: word):
-  state -> state -> Prop :=
-  fun s1 s2 =>
-    (s1.(mem) l <> Memp /\ s2.(mem) l = Memp) /\
-    (forall l', l <> l' -> s1.(mem) l' = s2.(mem) l').
-
 Definition alloc_mem_err: state -> Prop :=
   fun s => forall l, s.(mem) l <> Memp.
 

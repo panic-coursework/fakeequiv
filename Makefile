@@ -19,7 +19,8 @@ depend: .depend
 	$(COQDEP) $(COQFLAGS) $(FILES) > .depend
 
 clean:
-	rm -f **/*.glob **/*.vo **/*.vok **/*.vos **/.*.aux .depend
+	find -name '*.glob' -o -name '*.vo*' -o -name '.*.aux' | xargs rm -f
+	rm -f .depend .lia.cache
 
 .PHONY: clean depend
 

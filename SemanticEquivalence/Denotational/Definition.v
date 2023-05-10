@@ -3,15 +3,6 @@ Require Export SemanticEquivalence.Representation.
 Module DntSem.
 Import Representation.
 
-Record state: Type := {
-  var: var_id -> address;
-  mem: address -> memory_state;
-}.
-Notation "x '.(var)'" := (var x)
-  (at level 1).
-Notation "x '.(mem)'" := (mem x)
-  (at level 1).
-
 Module EDenote.
 Record EDenotePre {R : Type}: Type := {
   nrm: state -> R -> Prop;
