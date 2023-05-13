@@ -9,7 +9,7 @@ Local Open Scope Z.
 Local Open Scope sets.
 
 Module DntSem_WhileDCF_Com.
-Import SetsNotation.
+Import SetsNotation WhileDCF_Notation.
 Import Representation DntSem Lang_WhileDCF.
 Import EDenote CDenote.
 Import DntSem_WhileDCF_Expr.
@@ -108,10 +108,7 @@ Definition asgn_deref_sem_nrm
   exists i1 i2,
     D1 s1 i1 /\
     D2 s1 i2 /\
-    s1.(mem) i1 <> Memp /\
-    s2.(mem) i1 = Mstore (Vint i2) /\
-    (forall X, s1.(var) X = s2.(var) X) /\
-    (forall p, i1 <> p -> s1.(mem) p = s2.(mem) p).
+    set_mem i1 (Vint i2) s1 s2.
 
 Definition asgn_deref_sem_err
              (D1: state -> word -> Prop)
@@ -302,12 +299,30 @@ Definition for_sem
 Definition alloc_mem_err: state -> Prop :=
   fun s => forall l, s.(mem) l <> Memp.
 
+Definition local_free_compute (x : var_id) (i : address) : state -> state -> Prop :=
+  fun s s' =>
+    set_addr x (s.(var) x) i s s' /\
+    dealloc_mem i s s'.
+
+Definition local_free_sem_wrap (x : var_id) (addr : address) (rel : state -> state -> Prop) : state -> state -> Prop :=
+  rel ∘ (local_free_compute x addr).
+
+Definition local_free_sem (x : var_id) (a : address) (D : CDenote) : CDenote :=
+  {|
+    nrm := local_free_sem_wrap x a D.(nrm);
+    brk := local_free_sem_wrap x a D.(brk);
+    cnt := local_free_sem_wrap x a D.(cnt);
+    ret := local_free_sem_wrap x a D.(ret);
+    err := D.(err);
+    inf := D.(inf);
+  |}.
+
 Definition local_var_sem_wrap (x : var_id) (v : val) (rel : state -> state -> Prop) :=
   ⋃ (fun l1 =>
     ⋃ (fun l2 =>
       (set_addr x l1 l2 ∩ alloc_mem l2 v) ∘
       rel ∘
-      (set_addr x l2 l1 ∩ dealloc_mem l2))).
+      (local_free_compute x l2))).
 
 Definition local_var_sem_wrap_noreturn (x : var_id) (v : val) (rel : state -> Prop) :=
   ⋃ (fun l1 =>
@@ -315,9 +330,9 @@ Definition local_var_sem_wrap_noreturn (x : var_id) (v : val) (rel : state -> Pr
       (set_addr x l1 l2 ∩ alloc_mem l2 v) ∘
       rel)).
 
-Definition local_var_sem_pre
-             (v : val)
+Definition local_var_sem
              (x: var_id)
+             (v : val)
              (D: CDenote): CDenote :=
   {|
     nrm := local_var_sem_wrap x v D.(nrm);
@@ -327,7 +342,6 @@ Definition local_var_sem_pre
     err := local_var_sem_wrap_noreturn x v D.(err) ∪ alloc_mem_err;
     inf := local_var_sem_wrap_noreturn x v D.(inf);
   |}.
-Definition local_var_sem := local_var_sem_pre Vuninit.
 
 
 Definition brkcnt_err (p : state -> state -> Prop) (s : state) :=
@@ -363,23 +377,59 @@ Fixpoint define_args (params : list var_id) (args : list val) (D : CDenote) : CD
       inf := ∅;
     |}
   | cons param params', cons arg args' =>
-    local_var_sem_pre arg param (define_args params' args' D)
+    local_var_sem param arg (define_args params' args' D)
   end.
 
 
-Fixpoint eval_com_pre (proc_sem : func_id -> list expr -> CDenote) (c: com) : CDenote :=
-  let eval_com := eval_com_pre proc_sem in
+Definition proc_sem (proc_env_sem : list var_id -> list word -> com -> CDenote)
+                    (prog : program) (p : func_id) (es : list expr) : CDenote :=
+  match procs prog p with
+  | None =>
+    {|
+      nrm := ∅;
+      brk := ∅;
+      cnt := ∅;
+      ret := ∅;
+      err := Sets.full;
+      inf := ∅;
+    |}
+  | Some pr =>
+    let d := fun args => proc_env_sem (params_proc pr) args (body_proc pr) in
+    {|
+      nrm := fun s s' => exists args,
+        eval_expr_list_nrm es s args /\
+        (d args).(nrm) s s';
+      brk := ∅;
+      cnt := ∅;
+      ret := ∅;
+      err := fun s =>
+        eval_expr_list_err es s \/
+        exists args,
+          eval_expr_list_nrm es s args /\
+          (d args).(err) s;
+      inf := fun s => exists args,
+        eval_expr_list_nrm es s args /\
+        (d args).(inf) s;
+    |}
+  end.
+
+Fixpoint eval_com_pre (prog : program) (proc_env_sem : list var_id -> list word -> com -> CDenote) (c: com) : CDenote :=
+  let eval_com := eval_com_pre prog proc_env_sem in
   match c with
   | CSkip =>
       skip_sem
-  | CLocalVar x c =>
-      local_var_sem x (eval_com c)
+  | CLocalVar x v c =>
+      local_var_sem x v (eval_com c)
+  | CLocalVarEnv x a c =>
+      local_free_sem x a (eval_com c)
   | CAsgnVar X e =>
       asgn_var_sem X (eval_r e)
   | CAsgnDeref e1 e2 =>
       asgn_deref_sem (eval_r e1) (eval_r e2)
   | CProcCall p es =>
-      proc_sem p es
+      proc_sem proc_env_sem prog p es
+  | CProcCallEnv xs vs c' =>
+      proc_env_sem xs vs c'
   | CSeq c1 c2 =>
       seq_sem (eval_com c1) (eval_com c2)
   | CIf e c1 c2 =>
@@ -399,40 +449,13 @@ Fixpoint eval_com_pre (proc_sem : func_id -> list expr -> CDenote) (c: com) : CD
       ret_sem
   end.
 
-Definition proc_sem_aux (proc_sem: func_id -> list expr -> CDenote)
-                        (prog : program) (p : func_id) (es : list expr) : CDenote :=
-  match procs prog p with
-  | None =>
-    {|
-      nrm := ∅;
-      brk := ∅;
-      cnt := ∅;
-      ret := ∅;
-      err := Sets.full;
-      inf := ∅;
-    |}
-  | Some pr =>
-    let D := eval_com_pre proc_sem (body_proc pr) in
-    let d := fun args => define_args (params_proc pr) (map Vint args) D in
-    {|
-      nrm := fun s s' => exists args,
-        eval_expr_list_nrm es s args /\
-        (d args).(nrm) s s';
-      brk := ∅;
-      cnt := ∅;
-      ret := ∅;
-      err := fun s =>
-        eval_expr_list_err es s \/
-        exists args,
-          eval_expr_list_nrm es s args /\
-          (d args).(err) s;
-      inf := fun s => exists args,
-        eval_expr_list_nrm es s args /\
-        (d args).(inf) s;
-    |}
-  end.
+Definition proc_env_sem_aux (prog : program)
+                            (proc_env_sem: list var_id -> list word -> com -> CDenote)
+                            (xs : list var_id) (vs : list word) (c : com) : CDenote :=
+  define_args xs (map Vint vs) (eval_com_pre prog proc_env_sem c).
 
-Fixpoint proc_sem_lt_n (prog : program) (n : nat) (p : func_id) (es : list expr) : CDenote :=
+Fixpoint proc_env_sem_lt_n (prog : program) (n : nat)
+                           (xs : list var_id) (vs : list word) (c : com) : CDenote :=
   match n with
   | O =>
     {|
@@ -444,33 +467,36 @@ Fixpoint proc_sem_lt_n (prog : program) (n : nat) (p : func_id) (es : list expr)
       inf := ∅;
     |}
   | S n' =>
-    proc_sem_aux (proc_sem_lt_n prog n') prog p es
+    proc_env_sem_aux prog (proc_env_sem_lt_n prog n') xs vs c
   end.
 
-Definition proc_sem_nrm (prog : program) (p : func_id) (es : list expr) :=
-  ⋃ (fun n => (proc_sem_lt_n prog n p es).(nrm)).
-Definition proc_sem_err (prog : program) (p : func_id) (es : list expr) :=
-  ⋃ (fun n => (proc_sem_lt_n prog n p es).(err)).
+Definition proc_env_sem_nrm (prog : program) (xs : list var_id) (vs : list word) (c : com) :=
+  ⋃ (fun n => (proc_env_sem_lt_n prog n xs vs c).(nrm)).
+Definition proc_env_sem_err (prog : program) (xs : list var_id) (vs : list word) (c : com) :=
+  ⋃ (fun n => (proc_env_sem_lt_n prog n xs vs c).(err)).
 
-Definition proc_sem_pre (prog : program) (X : state -> Prop) (p : func_id) (es : list expr) : CDenote :=
+Definition proc_env_sem_pre (prog : program) (X : state -> Prop)
+                            (xs : list var_id) (vs : list word) (c : com) : CDenote :=
   {|
-    nrm := proc_sem_nrm prog p es;
+    nrm := proc_env_sem_nrm prog xs vs c;
     brk := ∅;
     cnt := ∅;
     ret := ∅;
-    err := proc_sem_err prog p es;
+    err := proc_env_sem_err prog xs vs c;
     inf := X;
   |}.
 
-Definition proc_inf (prog : program) (p : func_id) (es : list expr) (X : state -> Prop) : Prop :=
-  let inf := ⋃ (fun n => (proc_sem_lt_n prog n p es).(inf)) ∪ X in
-  X ⊆ (proc_sem_aux (proc_sem_pre prog inf) prog p es).(inf).
+Definition proc_env_inf (prog : program)
+                        (xs : list var_id) (vs : list word) (c : com)
+                        (X : state -> Prop) : Prop :=
+  let inf := ⋃ (fun n => (proc_env_sem_lt_n prog n xs vs c).(inf)) ∪ X in
+  X ⊆ (proc_env_sem_aux prog (proc_env_sem_pre prog inf) xs vs c).(inf).
 
-Definition proc_sem (prog : program) (p : func_id) (es : list expr) : CDenote :=
-  proc_sem_pre prog (Sets.general_union (proc_inf prog p es)) p es.
+Definition proc_env_sem (prog : program) (xs : list var_id) (vs : list word) (c : com) :=
+  proc_env_sem_pre prog (Sets.general_union (proc_env_inf prog xs vs c)) xs vs c.
 
 Definition eval_com (prog : program) (c : com) : CDenote :=
-  eval_com_pre (proc_sem prog) c.
+  eval_com_pre prog (proc_env_sem prog) c.
 
 Definition eval_program (prog : program) : CDenote :=
   match procs prog (entry prog) with

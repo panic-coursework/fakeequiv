@@ -19,14 +19,17 @@ Inductive expr : Type :=
   | EBinop (op: binop) (e1 e2: expr): expr
   | EUnop (op: unop) (e: expr): expr
   | EDeref (e: expr): expr
-  | EAddrOf (e: expr): expr.
+  | EAddrOf (e: expr): expr
+.
 
 Inductive com : Type :=
   | CSkip: com
-  | CLocalVar (x: var_id) (c1: com): com
+  | CLocalVar (x: var_id) (v: val) (c1: com): com
+  | CLocalVarEnv (x: var_id) (a : address) (c: com): com
   | CAsgnVar (x: var_id) (e: expr): com
   | CAsgnDeref (e1 e2: expr): com
   | CProcCall (p: func_id) (es: list expr): com
+  | CProcCallEnv (xs : list var_id) (vs: list word) (c: com): com
   | CSeq (c1 c2: com): com
   | CIf (e: expr) (c1 c2: com): com
   | CWhile (e: expr) (c: com): com
@@ -34,7 +37,8 @@ Inductive com : Type :=
   | CDoWhile (c: com) (e: expr): com
   | CContinue: com
   | CBreak: com
-  | CReturn: com.
+  | CReturn: com
+.
 
 Record proc: Type := {
   name_proc: func_id;
@@ -76,14 +80,18 @@ Notation "& x" := (EAddrOf x)
 
 Notation "'skip'" := CSkip
   (in custom whiledcf_entry at level 0).
-Notation "'let' x 'in' c" := (CLocalVar x c)
+Notation "'let' x <- v 'in' c" := (CLocalVar x v c)
   (in custom whiledcf_entry at level 0, x constr at level 99, c custom whiledcf_entry at level 99).
-Notation "x = e" := (CAsgnVar x e)
+Notation "'let' x 'prev' a 'in' c" := (CLocalVarEnv x a c)
+  (in custom whiledcf_entry at level 0, x constr at level 99, a constr at level 99, c custom whiledcf_entry at level 99).
+Notation "x <- e" := (CAsgnVar x e)
   (in custom whiledcf_entry at level 0, x constr at level 99, e custom whiledcf_entry at level 99).
-Notation "* e1 = e2" := (CAsgnDeref e1 e2)
+Notation "* e1 <- e2" := (CAsgnDeref e1 e2)
   (in custom whiledcf_entry at level 0, e1 custom whiledcf_entry at level 99, e2 custom whiledcf_entry at level 99).
-Notation "p ( es )" := (CProcCall p es)
+Notation "p '.apply' ( es )" := (CProcCall p es)
   (in custom whiledcf_entry at level 0, p constr at level 99, es constr at level 99).
+Notation "'fn' ( xs <- vs ) c" := (CProcCallEnv xs vs c)
+  (in custom whiledcf_entry at level 0, xs constr at level 99, vs constr at level 99, c custom whiledcf_entry at level 99).
 Notation "c1 ; c2" := (CSeq c1 c2)
   (in custom whiledcf_entry at level 0).
 Notation "'if' e 'then' c1 'else' c2" := (CIf e c1 c2)

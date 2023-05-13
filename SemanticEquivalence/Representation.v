@@ -18,6 +18,7 @@ Definition Z_word_min : Z := Int64.min_signed.
 Definition Z_word_max : Z := Int64.max_signed.
 
 Definition Z_in_range (x : Z) := Z_word_min <= x <= Z_word_max.
+Definition Z_in_range_b (x : Z) := andb (Z_word_min <=? x) (x <=? Z_word_max).
 Definition Z_out_of_range (x : Z) := x < Z_word_min \/ x > Z_word_max.
 
 Definition word_div := Int64.divs.
@@ -57,11 +58,18 @@ Notation "x '.(mem)'" := (mem x)
   (at level 1).
 
 
-Definition set_addr
-             (x: var_id)
-             (l1 l2: word):
-  state -> state -> Prop :=
-  fun s1 s2 => s1.(var) x = l1 /\ s2.(var) x = l2.
+(* MUST be used together with {de,}alloc_mem *)
+Definition set_addr (x : var_id) (l1 l2 : word) : state -> state -> Prop :=
+  fun s1 s2 =>
+    s1.(var) x = l1 /\
+    s2.(var) x = l2 /\
+    forall y, x <> y -> s1.(var) y = s2.(var) y.
+
+Definition set_mem (addr : address) (v : val) (s1 s2 : state) : Prop :=
+  s1.(mem) addr <> Memp /\
+  s2.(mem) addr = Mstore v /\
+  (forall X, s1.(var) X = s2.(var) X) /\
+  (forall p, addr <> p -> s1.(mem) p = s2.(mem) p).
 
 Definition alloc_mem (l: word) (v : val):
   state -> state -> Prop :=
