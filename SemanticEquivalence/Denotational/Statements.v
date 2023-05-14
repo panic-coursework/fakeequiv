@@ -125,7 +125,7 @@ Definition asgn_deref_sem
     cnt := ∅;
     ret := ∅;
     err := D1.(err) ∪ D2.(err) ∪
-           asgn_deref_sem_err D2.(nrm);
+           asgn_deref_sem_err D1.(nrm);
     inf := ∅;
   |}.
 
@@ -420,16 +420,12 @@ Fixpoint eval_com_pre (prog : program) (proc_env_sem : list var_id -> list word 
       skip_sem
   | CLocalVar x v c =>
       local_var_sem x v (eval_com c)
-  | CLocalVarEnv x a c =>
-      local_free_sem x a (eval_com c)
   | CAsgnVar X e =>
       asgn_var_sem X (eval_r e)
   | CAsgnDeref e1 e2 =>
       asgn_deref_sem (eval_r e1) (eval_r e2)
   | CProcCall p es =>
       proc_sem proc_env_sem prog p es
-  | CProcCallEnv xs vs c' =>
-      proc_env_sem xs vs c'
   | CSeq c1 c2 =>
       seq_sem (eval_com c1) (eval_com c2)
   | CIf e c1 c2 =>
@@ -510,9 +506,21 @@ Definition eval_program (prog : program) : CDenote :=
       inf := ∅;
     |}
   | Some entry_proc =>
-    let gvars := global_vars prog in
-    define_args gvars (map (fun _ => Vuninit) gvars)
-      (eval_com prog (body_proc entry_proc))
+    match params_proc entry_proc with
+    | _ :: _ =>
+      {|
+        nrm := ∅;
+        brk := ∅;
+        cnt := ∅;
+        ret := ∅;
+        err := Sets.full;
+        inf := ∅;
+      |}
+    | nil =>
+      let gvars := global_vars prog in
+      define_args gvars (map (fun _ => Vuninit) gvars)
+        (eval_com prog (body_proc entry_proc))
+    end
   end.
 
 End DntSem_WhileDCF_Com.
