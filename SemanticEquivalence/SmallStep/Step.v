@@ -182,7 +182,7 @@ Fixpoint expr_list_to_word (es : list expr) : option (list word) :=
 
 Inductive com_context : Type :=
 | LocalVarEnv (x : var_id) (a : address) : com_context
-| ProcCallEnv (xs : list var_id) (vs : list word) : com_context
+| ProcCallEnv (xs : list var_id) (vs : list val) : com_context
 | TestEnv (e : expr) : com_context
 | WhileEnv (e : expr) (c : com) : com_context
 | ForEnv (e : expr) (c2 c3 : com) : com_context
@@ -194,19 +194,19 @@ Inductive step_com (prog : program) : (state * com * list com_context) -> (state
     let l0 := s.(var) x in
     let l1 := s'.(var) x in
     local_var_enter x l0 l1 v s s' ->
-    step_com prog (s, [[ let x <- v in c ]], k) (s', c, (LocalVarEnv x l0) :: k)
+    step_com prog (s, [[ let x <- v in c ]], k) (s', c, LocalVarEnv x l0 :: k)
 | CS_LocalVarEnv_Skip (x : var_id) (a : address) : forall s s' k',
     local_var_exit x a s s' ->
-    step_com prog (s, [[skip]], (LocalVarEnv x a) :: k') (s', [[skip]], k')
+    step_com prog (s, [[skip]], LocalVarEnv x a :: k') (s', [[skip]], k')
 | CS_LocalVarEnv_Break (x : var_id) (a : address) : forall s s' k',
     local_var_exit x a s s' ->
-    step_com prog (s, [[break]], (LocalVarEnv x a) :: k') (s', [[break]], k')
+    step_com prog (s, [[break]], LocalVarEnv x a :: k') (s', [[break]], k')
 | CS_LocalVarEnv_Continue (x : var_id) (a : address) : forall s s' k',
     local_var_exit x a s s' ->
-    step_com prog (s, [[continue]], (LocalVarEnv x a) :: k') (s', [[continue]], k')
+    step_com prog (s, [[continue]], LocalVarEnv x a :: k') (s', [[continue]], k')
 | CS_LocalVarEnv_Return (x : var_id) (a : address) : forall s s' k',
     local_var_exit x a s s' ->
-    step_com prog (s, [[return]], (LocalVarEnv x a) :: k') (s', [[return]], k')
+    step_com prog (s, [[return]], LocalVarEnv x a :: k') (s', [[return]], k')
 
 | CS_AsgnVar (x : var_id) (e : expr) : forall s k,
     let addr := (EConst (Z_from_word (s.(var) x))) in
@@ -228,19 +228,19 @@ Inductive step_com (prog : program) : (state * com * list com_context) -> (state
     procs prog p = Some pb ->
     let xs := params_proc pb in
     let body := body_proc pb in
-    step_com prog (s, [[ p.apply(es) ]], k) (s, body, (ProcCallEnv xs vs) :: k)
+    step_com prog (s, [[ p.apply(es) ]], k) (s, body, ProcCallEnv xs (map Vint vs) :: k)
 | CS_ProcCall_Args : forall s p es es' k,
     step_expr_list s es es' ->
     step_com prog (s, [[ p.apply(es) ]], k) (s, [[ p.apply(es') ]], k)
 | CS_ProcCallEnv_Unfold : forall s s' x xs' v vs' c k',
     let l0 := s.(var) x in
     let l1 := s'.(var) x in
-    local_var_enter x l0 l1 (Vint v) s s' ->
-    step_com prog (s, c, (ProcCallEnv (x :: xs') (v :: vs')) :: k') (s', c, (ProcCallEnv xs' vs') :: (LocalVarEnv x l0) :: k')
+    local_var_enter x l0 l1 v s s' ->
+    step_com prog (s, c, ProcCallEnv (x :: xs') (v :: vs') :: k') (s', c, ProcCallEnv xs' vs' :: LocalVarEnv x l0 :: k')
 | CS_ProcCallSkip : forall s k',
-    step_com prog (s, [[skip]], (ProcCallEnv nil nil) :: k') (s, [[skip]], k')
+    step_com prog (s, [[skip]], ProcCallEnv nil nil :: k') (s, [[skip]], k')
 | CS_ProcCallReturn : forall s k',
-    step_com prog (s, [[return]], (ProcCallEnv nil nil) :: k') (s, [[skip]], k')
+    step_com prog (s, [[return]], ProcCallEnv nil nil :: k') (s, [[skip]], k')
 (* No break and continue here *)
 
 | CS_Seq_Skip : forall s c2 k,
@@ -307,5 +307,20 @@ Inductive step_com (prog : program) : (state * com * list com_context) -> (state
 | CS_DoWhile : forall s c e k,
     step_com prog (s, [[ do c while e ]], k) (s, c, WhileEnv e c :: k)
 .
+
+Definition multistep_expr (s : state) := clos_refl_trans (step_expr s).
+Definition multistep_com (prog : program) := clos_refl_trans (step_com prog).
+
+Definition prog_entry (prog : program) (s : state) : (state * com * list com_context) :=
+  match procs prog (entry prog) with
+  | None => (s, [[return]], nil) (* bogus *)
+  | Some entry_proc =>
+    match params_proc entry_proc with
+    | _ :: _ => (s, [[return]], nil) (* bogus *)
+    | nil =>
+      let gvars := global_vars prog in
+      (s, (body_proc entry_proc), ProcCallEnv gvars (map (fun _ => Vuninit) gvars) :: nil)
+    end
+  end.
 
 End SmallStep_WhileDCF.
